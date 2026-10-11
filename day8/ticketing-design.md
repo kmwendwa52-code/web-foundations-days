@@ -6,8 +6,9 @@ TicketHub is a website that sells tickets for concerts and events. Its hardest m
 2. Estimates
 3. API
 4. Data model
-5. Architecture
-6. Trade-offs
+5. Preventing double-booking
+6. Architecture
+7. Trade-offs
 
 Because the most important rule is that two people must never buy the same seat, there is also a dedicated section on **preventing double-booking** (section 5).
 
