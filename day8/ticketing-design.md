@@ -1,6 +1,6 @@
 # TicketHub Design
 
-TicketHub is a website that sells tickets for concerts and events. Its hardest moment is the **big sale**, when a very popular concert goes on sale and many more people try to buy than there are seats. This document follows the six-part design framework:
+TicketHub is a website that sells tickets for concerts and events. Its hardest moment is the **big sale**, when a very popular concert goes on sale and many more people try to buy than there are seats. This document follows the seven-part design framework:
 
 1. Requirements
 2. Estimates
@@ -10,7 +10,6 @@ TicketHub is a website that sells tickets for concerts and events. Its hardest m
 6. Architecture
 7. Trade-offs
 
-Because the most important rule is that two people must never buy the same seat, there is also a dedicated section on **preventing double-booking** (section 5).
 
 ## 1. Requirements
 
