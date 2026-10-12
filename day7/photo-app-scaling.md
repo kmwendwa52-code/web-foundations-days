@@ -1,4 +1,42 @@
 # SnapShare Scaling Plan
+> **Quick summary of the whole plan. Full detail follows in sections 1 to 8.**
+> SnapShare has 10,000,000 users, 1,000,000 active per day. It is **read-heavy**: about 579 feed views per second on average (2,900 at peak) against 11.6 uploads per second (58 at peak). It stores about 748 TB of photos per year.
+
+## Summary: the key design decisions
+
+**Photos stay out of the database.** Originals and thumbnails go into object storage (such as Amazon S3) and are delivered by a CDN. The database holds only about 1 KB of metadata per photo, including the storage key. This keeps the database small, cheap and fast, and backups manageable.
+
+**What each component does (one line each)**
+- **CDN:** serves photos from servers close to users and takes load off object storage.
+- **Load balancer:** spreads requests across many app servers so none is overloaded.
+- **App servers:** run the login, feed and upload logic, and are scaled by adding more copies.
+- **Cache (Redis):** keeps ready-made feeds in memory so the database is not hit by repeated reads.
+- **Primary database:** stores users, follows and photo metadata, and takes all writes.
+- **Read replica:** a live copy that answers read queries and acts as a backup.
+- **Object storage:** holds the photo files cheaply at almost unlimited size.
+- **Queue:** holds jobs such as "make a thumbnail" so uploads do not wait.
+- **Thumbnail worker:** turns each 2 MB original into a 50 KB thumbnail in the background.
+
+**Upload flow, step by step**
+1. The user sends the photo over HTTPS; the load balancer passes it to an app server.
+2. The app server checks login, file type and size.
+3. It saves the original into object storage and gets a storage key.
+4. It writes a metadata row to the primary database (status "processing").
+5. It puts a "create thumbnail" job on the queue.
+6. It replies to the user straight away: success, no waiting for the thumbnail.
+7. A worker takes the job, reads the original, creates the 50 KB thumbnail, saves it to object storage, and sets the row to "ready". Failed jobs are retried, then moved to a failed-jobs list.
+8. The follower feed cache is refreshed, and the CDN keeps a copy of the thumbnail after its first view.
+
+**Trade-offs (full discussion in section 8)**
+1. Caching makes feeds fast but possibly out of date (a short delay is accepted).
+2. Read replicas add read capacity but can lag: eventual consistency (read a user's own recent data from the primary).
+3. Background thumbnails keep uploads fast but add delay and a queue to run.
+4. CDN and 748 TB of storage per year cost money (move old photos to cold storage).
+
+---
+
+
+
 
 SnapShare is a photo-sharing app. Users upload photos and scroll a feed of photos from the people they follow. This plan estimates the load on the system and designs an architecture that can handle it.
 
