@@ -25,8 +25,7 @@
 5. It puts a "create thumbnail" job on the queue.
 6. It replies to the user straight away: success, no waiting for the thumbnail.
 7. A worker takes the job, reads the original, creates the 50 KB thumbnail, saves it to object storage, and sets the row to "ready". Failed jobs are retried, then moved to a failed-jobs list.
-8. The follower feed cache is refreshed, and the CDN keeps a copy of the thumbnail after its first view.
-
+8. The follower feeds are updated by fan-out on write, and the CDN keeps a copy of the thumbnail after its first view.
 **Trade-offs (full discussion in section 8)**
 1. Caching makes feeds fast but possibly out of date (a short delay is accepted).
 2. Read replicas add read capacity but can lag: eventual consistency (read a user's own recent data from the primary).
@@ -179,8 +178,7 @@ Notes on reading the diagram:
 8. A **thumbnail worker** takes the job from the queue, downloads the original from object storage and resizes it to a 50 KB thumbnail.
 9. The worker saves the thumbnail into **object storage** and updates the database row to status "ready" with the thumbnail's storage key.
 10. If the worker fails, the job goes back on the queue and is retried. After several failures it moves to a separate "failed jobs" list for a person to look at.
-11. The **feed cache** of the user's followers is updated or cleared, so the new photo shows up the next time they load their feed.
-12. The first time a follower views the thumbnail, the **CDN** fetches it from object storage and keeps a copy, so every later view is served by the CDN.
+11. A background job updates the followers' feeds. SnapShare uses **fan-out on write** for normal accounts: the job adds the new photo's id to the top of each follower's precomputed timeline in Redis (a list of the latest 500 photo ids). The next time a follower opens the feed, it is read straight from the cache with no database query. Fan-out is skipped for accounts with more than 100,000 followers (see trade-off 5) and for followers who have not been active for 30 days.12. The first time a follower views the thumbnail, the **CDN** fetches it from object storage and keeps a copy, so every later view is served by the CDN.
 
 ## 8. Trade-offs
 
@@ -188,3 +186,4 @@ Notes on reading the diagram:
 2. **A read replica gives more read capacity but can lag behind.** Copying data from the primary takes a short time, so a read from the replica may not include a write made a moment ago. This is called eventual consistency. A user could upload a photo and not see it in their own profile right away. We can reduce this by reading a user's own recent data from the primary.
 3. **Making thumbnails in the background keeps uploads fast but adds delay and complexity.** Because the thumbnail is made after the upload succeeds, a photo can briefly appear without its thumbnail. Making it during the upload would be simpler but would make every upload slower and would fail if the thumbnail step failed. We also have to run and monitor a queue and workers.
 4. **A CDN and large object storage cost money.** Serving images worldwide and keeping about 748 TB of new files per year is expensive. To reduce cost we could move old, rarely viewed photos to cheaper "cold" storage, but then opening an old photo would be slower.
+5. **Fan-out on write makes feeds fast but costs extra work at upload time.** Suppose an average user has 200 followers. Then 1,000,000 uploads per day become 200,000,000 timeline writes per day, about 2,300 per second on average and about 11,600 per second at peak. The alternative, a pull model, builds each feed when it is opened by fetching recent photos from every account the user follows. At the peak of 2,900 feed views per second and about 200 followed accounts each, that is about 580,000 lookups per second. Because feeds are read about 50 times more than photos are uploaded, it is cheaper to do the work once at upload time. The weak point is accounts with millions of followers, where one upload would trigger millions of cache writes. For those accounts we use a **hybrid**: their photos are not pushed, and they are fetched and merged into the feed when a follower opens it. Deleted photos are removed from the cache, and the feed hides any photo whose database status is no longer "ready".
