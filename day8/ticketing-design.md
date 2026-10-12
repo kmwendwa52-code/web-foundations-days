@@ -1,4 +1,43 @@
 # TicketHub Design
+> **Quick summary of the whole design. Full detail follows in sections 1 to 7.**
+> TicketHub sells concert tickets. Its hardest moment is the big sale: 200,000 people compete for 20,000 seats, with about 10,000 requests per second at the busiest moments (a normal day peaks at about 29). The load changes from read-heavy to write-heavy.
+
+## Summary: the key design decisions
+
+**Database schema (5 tables)**
+- `users` (id PK, email UNIQUE, name, password_hash)
+- `events` (id PK, name, venue, starts_at, on_sale_at, status)
+- `seats` (id PK, event_id FK to events, section, row_label, seat_number, price_cents, status `available/held/sold`, held_by FK to users, hold_expires_at), with UNIQUE (event_id, section, row_label, seat_number)
+- `orders` (id PK, user_id FK to users, event_id FK to events, total_cents, payment_ref UNIQUE)
+- `tickets` (id PK, order_id FK to orders, seat_id FK to seats **UNIQUE**, code UNIQUE)
+
+**How double-booking is prevented.** Checking and changing a seat happen in one atomic statement, so there is no gap for a second buyer. The database locks the row, so the second update re-checks and changes 0 rows:
+
+```sql
+UPDATE seats
+SET status = 'held', held_by = :user_id,
+    hold_expires_at = datetime('now', '+5 minutes')
+WHERE id = :seat_id
+  AND (status = 'available'
+       OR (status = 'held' AND hold_expires_at < datetime('now')));
+-- 1 row changed = got the seat. 0 rows = 409 Conflict.
+```
+
+Several seats are held in one transaction in ascending id order (all or nothing, no deadlocks). Holds last 5 minutes, plus 2 minutes once payment starts. `UNIQUE (seat_id)` on `tickets` is the last line of defence.
+
+**Architecture.** Users go to the CDN (static files), then the load balancer with rate limiting, then the **waiting room** (about 50 people per second admitted), then many app servers. These use a Redis cache (seat map cached about 2 seconds), a primary database for all writes, read replicas for reads, and a queue with workers for emails, refunds and expired holds. Payment goes through an external payment provider with an `Idempotency-Key`.
+
+**Trade-offs (full discussion in section 7)**
+1. Waiting room: protects the site and is fair, but 180,000 people wait and are disappointed.
+2. Hold time: 5 minutes lets people pay, but locks seats while they hesitate.
+3. One primary database: exact and safe, but limits seat updates per second (shard by event later).
+4. Cached seat map: lower load, but a user may click a seat just taken and get a `409`.
+5. Anti-bot limits (4 tickets per account): fair, but annoying for group buyers.
+
+---
+
+
+
 
 TicketHub is a website that sells tickets for concerts and events. Its hardest moment is the **big sale**, when a very popular concert goes on sale and many more people try to buy than there are seats. This document follows the seven-part design framework:
 
