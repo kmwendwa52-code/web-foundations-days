@@ -178,7 +178,8 @@ Notes on reading the diagram:
 8. A **thumbnail worker** takes the job from the queue, downloads the original from object storage and resizes it to a 50 KB thumbnail.
 9. The worker saves the thumbnail into **object storage** and updates the database row to status "ready" with the thumbnail's storage key.
 10. If the worker fails, the job goes back on the queue and is retried. After several failures it moves to a separate "failed jobs" list for a person to look at.
-11. A background job updates the followers' feeds. SnapShare uses **fan-out on write** for normal accounts: the job adds the new photo's id to the top of each follower's precomputed timeline in Redis (a list of the latest 500 photo ids). The next time a follower opens the feed, it is read straight from the cache with no database query. Fan-out is skipped for accounts with more than 100,000 followers (see trade-off 5) and for followers who have not been active for 30 days.12. The first time a follower views the thumbnail, the **CDN** fetches it from object storage and keeps a copy, so every later view is served by the CDN.
+11. A background job updates the followers' feeds. SnapShare uses **fan-out on write** for normal accounts: the job adds the new photo's id to the top of each follower's precomputed timeline in Redis (a list of the latest 500 photo ids). The next time a follower opens the feed, it is read straight from the cache with no database query. Fan-out is skipped for accounts with more than 100,000 followers (see trade-off 5) and for followers who have not been active for 30 days.
+12. The first time a follower views the thumbnail, the **CDN** fetches it from object storage and keeps a copy, so every later view is served by the CDN.
 
 ## 8. Trade-offs
 
